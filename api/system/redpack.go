@@ -25,11 +25,12 @@ func (ra *RedPackApi) CreateRedPack(c *gin.Context) {
 		Total:         r.Total,
 		UserID:        uuid.Must(uuid.NewV4()),
 	}
-	if err := redPackService.CreateRedPackService(redPack); err != nil {
+	id, err := redPackService.CreateRedPackService(redPack)
+	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	response.OkWithMessage("创建成功", c)
+	response.OkWithDetailed(id, "创建成功", c)
 }
 
 func (ra *RedPackApi) GetRedPack(c *gin.Context) {

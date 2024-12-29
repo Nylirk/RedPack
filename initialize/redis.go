@@ -15,7 +15,7 @@ type Redis struct {
 func InitRedis() *redis.Client {
 	config := Redis{
 		Addr:     "121.40.25.175:6379",
-		Password: "",
+		Password: "123456",
 		DB:       0,
 	}
 	client := redis.NewClient(&redis.Options{

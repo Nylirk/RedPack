@@ -3,7 +3,6 @@ package initialize
 import (
 	"RedPack/global"
 	"RedPack/initialize/internal"
-	"RedPack/model/system"
 	"database/sql"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
@@ -14,15 +13,17 @@ import (
 )
 
 type Mysql struct {
-	Username string
-	Password string
-	Path     string
-	Port     string
-	Dbname   string
-	Config   string
-	Prefix   string
-	Engine   string
-	Singular bool
+	Username     string
+	Password     string
+	Path         string
+	Port         string
+	Dbname       string
+	Config       string
+	Prefix       string
+	Engine       string
+	Singular     bool
+	MaxIdleConns int
+	MaxOpenConns int
 }
 
 func (m *Mysql) Dsn() string {
@@ -35,13 +36,15 @@ func (m *Mysql) SqlDsn() string {
 
 func InitMysql() *gorm.DB {
 	m := Mysql{
-		Username: "root",
-		Password: "123456",
-		Port:     "3306",
-		Dbname:   "redpack",
-		Config:   "charset=utf8mb4&parseTime=true&loc=Asia%2fShanghai",
-		Prefix:   "",
-		Engine:   "",
+		Username:     "root",
+		Password:     "123456",
+		Port:         "3306",
+		Dbname:       "redpack",
+		Config:       "charset=utf8mb4&parseTime=true&loc=Asia%2fShanghai",
+		Prefix:       "",
+		Engine:       "",
+		MaxIdleConns: 20,
+		MaxOpenConns: 1000,
 	}
 	if m.Dbname == "" {
 		return nil
@@ -85,12 +88,12 @@ func InitMysql() *gorm.DB {
 		return nil
 	} else {
 		db.InstanceSet("gorm:table_options", "ENGINE="+m.Engine)
-		if err := db.Use(dbresolver.Register(dbresolver.Config{
+		if err = db.Use(dbresolver.Register(dbresolver.Config{
 			Replicas:          []gorm.Dialector{mysql.New(replicasConfig)},
 			Policy:            dbresolver.RandomPolicy{},
 			TraceResolverMode: true,
 		})); err != nil {
-			fmt.Println("注册读写分离失败!", err)
+			fmt.Println("注册读写分离失败!")
 			return nil
 		}
 		return db
@@ -99,12 +102,43 @@ func InitMysql() *gorm.DB {
 
 func CreateTables() {
 	db := global.DB
-	err := db.AutoMigrate(
-		system.RedPack{},
-		system.RedPackRecord{},
-	)
-	if err != nil {
-		fmt.Println("创建主库表失败!")
-		os.Exit(0)
+	for i := 0; i < 10; i++ {
+		redPackTableName := fmt.Sprintf("red_packs_%d", i)
+		redPackRecordTableName := fmt.Sprintf("red_pack_records_%d", i)
+
+		// 创建 red_packs 分片表
+		err := db.Exec(fmt.Sprintf(`
+			CREATE TABLE IF NOT EXISTS %s (
+				id bigint(20) NOT NULL AUTO_INCREMENT,
+  				created_at datetime(3) DEFAULT NULL,
+  				user_id varchar(191) DEFAULT NULL COMMENT '用户UUID',
+    			total_amount double DEFAULT NULL COMMENT '总金额',
+    			surplus_amount double DEFAULT NULL COMMENT '剩余金额',
+    			total bigint(20) DEFAULT NULL COMMENT '红包总数',
+    			surplus_total bigint(20) DEFAULT NULL COMMENT '剩余红包总数',
+			    PRIMARY KEY (id),
+  				KEY idx_red_pack_user_id (user_id)
+		)`, redPackTableName)).Error
+		if err != nil {
+			fmt.Println("创建表出错!")
+			os.Exit(0)
+		}
+		// 创建 red_pack_records 分片表
+		err = db.Exec(fmt.Sprintf(`
+			CREATE TABLE IF NOT EXISTS %s (
+				id bigint(20) NOT NULL AUTO_INCREMENT,
+  				created_at datetime(3) DEFAULT NULL,
+  				red_pack_id bigint(20) NOT NULL,
+  				user_id varchar(191) NOT NULL,
+  				amount double DEFAULT NULL,
+				FOREIGN KEY (red_pack_id) REFERENCES %s(id),
+			    PRIMARY KEY (id),
+  				KEY idx_red_pack_record_red_pack_id (red_pack_id),
+  				KEY idx_red_pack_record_user_id (user_id)
+			)`, redPackRecordTableName, redPackTableName)).Error
+		if err != nil {
+			fmt.Println("创建表出错!")
+			os.Exit(0)
+		}
 	}
 }
