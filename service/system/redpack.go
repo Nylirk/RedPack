@@ -45,7 +45,6 @@ func (rs *RedPackService) CreateRedPackService(r *system.RedPack) (int64, error)
 		}
 		r.ID = id
 	}
-
 	tx := global.DB.Clauses(dbresolver.Write).Begin()
 	defer func() {
 		if re := recover(); re != nil {
@@ -157,8 +156,9 @@ func (rs *RedPackService) ViewRedPackService(redPackID int64) (err error, usersI
 			return errors.New("json转换失败"), nil
 		}
 		// 设置随机过期时间防止缓存雪崩
-		expiration := time.Minute * time.Duration(rand.Intn(4))
-		err = global.REDIS.Set(context.Background(), strconv.FormatInt(redPackID, 10), string(jsonByte), expiration).Err()
+		randomFactor := 0.5 + rand.Float64()*0.7 // 0.5 到 1.2 之间
+		randomTTL := time.Duration(float64(3) * randomFactor)
+		err = global.REDIS.Set(context.Background(), strconv.FormatInt(redPackID, 10), string(jsonByte), randomTTL).Err()
 		if err != nil {
 			return errors.New("redis写入失败"), nil
 		}
